@@ -576,6 +576,14 @@ const HEAD = {
   Config: ['clave', 'valor']
 };
 const EDITABLES = ['Categorias', 'Reglas', 'Medios', 'Fijos', 'Metas', 'Cuotas', 'Config'];
+// La planilla: la del script vinculado o, si el script es independiente, la de SHEET_ID (Personal.gs) o la propiedad SHEET_ID
+function book() {
+  const a = SpreadsheetApp.getActive();
+  if (a) return a;
+  const id = (typeof SHEET_ID !== 'undefined' && SHEET_ID) || PropertiesService.getScriptProperties().getProperty('SHEET_ID');
+  if (!id) throw new Error('Falta SHEET_ID: el script no está vinculado a una planilla');
+  return SpreadsheetApp.openById(id);
+}
 const REMITENTES = 'from:(enviodigital@bancochile.cl OR transferencias@itau.cl OR itaupersonas@itau.cl)';
 
 // ---------- Menú en la planilla ----------
@@ -645,7 +653,7 @@ function withLock(fn) {
 }
 
 // ---------- Tablas ----------
-function sh(name) { return SpreadsheetApp.getActive().getSheetByName(name); }
+function sh(name) { return book().getSheetByName(name); }
 function readTable(name) {
   const s = sh(name);
   if (!s || s.getLastRow() < 2) return [];
@@ -818,12 +826,12 @@ function scanEmail(dias) {
 function emailTrigger() { withLock(() => scanEmail(2)); }
 function leerCorreosAhora() {
   const n = withLock(() => scanEmail(30));
-  SpreadsheetApp.getActive().toast(n + ' movimientos nuevos desde tus correos', 'Gastos', 6);
+  book().toast(n + ' movimientos nuevos desde tus correos', 'Gastos', 6);
 }
 
 // ---------- Configuración inicial ----------
 function setup() {
-  const ss = SpreadsheetApp.getActive();
+  const ss = book();
   ss.setSpreadsheetTimeZone(TZ);
   const B = mergeSeeds(SEEDS, typeof PERSONAL !== 'undefined' ? PERSONAL : null);
   const seeds = {
