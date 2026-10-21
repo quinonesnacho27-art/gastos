@@ -1,0 +1,23 @@
+{
+  "name": "Gastos y Ahorro",
+  "short_name": "Gastos",
+  "description": "Tus gastos del día a día, tarjetas, gastos fijos y ahorro.",
+  "lang": "es-CL",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#EDF1F3",
+  "theme_color": "#0B7A75",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
