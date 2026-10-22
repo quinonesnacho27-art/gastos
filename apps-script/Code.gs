@@ -449,18 +449,20 @@ var CORE = (function () {
     return null;
   }
 
-  // Deja fuera lo que ya existe: misma ref, o mismo monto/tipo/día que un movimiento registrado por otra vía
-  function dedupImport(existing, incoming) {
-    var refs = {}, byDay = {};
+  // Deja fuera lo que ya existe: misma ref, o mismo monto y tipo (±3 días) que un movimiento registrado por otra vía
+  // (Apple Pay, correo, voz o a mano). La cartola registra las transferencias de fin de semana el día hábil siguiente.
+  function dedupImport(existing, incoming, dias) {
+    var win = (dias == null ? 3 : dias) * 86400000, refs = {}, otros = [];
     existing.forEach(function (t) {
       if (t.ref) refs[t.ref] = 1;
-      if (t.fuente !== 'cartola' && t.fuente !== 'tarjeta') { var k = String(t.fecha).slice(0, 10) + '|' + Math.round(Number(t.monto)) + '|' + t.tipo; byDay[k] = (byDay[k] || 0) + 1; }
+      if (t.fuente !== 'cartola' && t.fuente !== 'tarjeta') otros.push({ m: Math.round(Number(t.monto)), tipo: t.tipo, d: parseLocal(String(t.fecha).slice(0, 10)).getTime(), usado: false });
     });
     var out = [], dup = 0;
     incoming.forEach(function (t) {
       if (refs[t.ref]) { dup++; return; }
-      var k = String(t.fecha).slice(0, 10) + '|' + Math.round(Number(t.monto)) + '|' + t.tipo;
-      if (byDay[k]) { byDay[k]--; dup++; return; }
+      var m = Math.round(Number(t.monto)), d = parseLocal(String(t.fecha).slice(0, 10)).getTime(), best = null;
+      otros.forEach(function (o) { if (!o.usado && o.m === m && o.tipo === t.tipo && Math.abs(o.d - d) <= win && (!best || Math.abs(o.d - d) < Math.abs(best.d - d))) best = o; });
+      if (best) { best.usado = true; dup++; return; }
       refs[t.ref] = 1; out.push(t);
     });
     return { nuevos: out, duplicados: dup };
@@ -944,4 +946,19 @@ function enviarLinkIphone() {
   GmailApp.sendEmail(me, 'Tu app Gastos y Ahorro: instálala en el iPhone', 'Abre este correo en tu iPhone. Link de la app: ' + link + '\n\nURL Apple Pay: ' + ap + '\n\nURL voz: ' + vz, { htmlBody: html, name: 'Gastos y Ahorro' });
   Logger.log('Correo enviado a ' + me);
   return me;
+}
+
+// Quita movimientos de cartola que ya estaban registrados por otra vía (correo, Apple Pay, voz o a mano)
+function quitarDuplicadosCartola() {
+  return withLock(() => {
+    const all = readTable('Movimientos');
+    const base = all.filter(t => t.fuente !== 'cartola' && t.fuente !== 'tarjeta');
+    const imp = all.filter(t => t.fuente === 'cartola' || t.fuente === 'tarjeta');
+    const keep = {}; CORE.dedupImport(base, imp).nuevos.forEach(t => keep[t.id] = 1);
+    const borrar = imp.filter(t => !keep[t.id]);
+    const ids = {}; borrar.forEach(t => ids[t.id] = 1);
+    writeTable('Movimientos', all.filter(t => !ids[t.id]));
+    Logger.log('Duplicados quitados: ' + borrar.length + ' — ' + borrar.map(t => t.fecha.slice(0, 10) + ' ' + t.comercio + ' $' + t.monto).join('; '));
+    return borrar.length;
+  });
 }
