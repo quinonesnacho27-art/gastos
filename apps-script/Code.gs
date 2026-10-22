@@ -870,3 +870,78 @@ function verToken() {
   Logger.log(msg);
   try { SpreadsheetApp.getUi().alert(msg); } catch (e) { }
 }
+
+
+// ---------- Cargar cartolas/estados Itaú ya leídos (filas de las planillas .xls) ----------
+// lista: [{ rows: [[...], ...] }, ...] — cada elemento son las filas de un archivo, igual que las lee la app
+function importarFilasItau(lista) {
+  const c = ctx(), txs = [], cuotas = {}, saldos = {};
+  let tc = null;
+  (lista || []).forEach(f => {
+    const r = CORE.importItau(f.rows, c);
+    if (!r) return;
+    r.txs.forEach(t => txs.push(t));
+    (r.cuotas || []).forEach(q => { cuotas[q.descripcion] = q; });
+    Object.assign(saldos, r.saldos || {});
+    if (r.tipo === 'tarjeta') tc = r;
+  });
+  const d = CORE.dedupImport(readTable('Movimientos'), txs.map(completeTx));
+  appendRows('Movimientos', d.nuevos);
+  const qs = Object.keys(cuotas).map(k => cuotas[k]);
+  if (qs.length) {
+    const nombres = qs.map(q => q.descripcion);
+    writeTable('Cuotas', readTable('Cuotas').filter(q => nombres.indexOf(q.descripcion) < 0 && !(tc && q.medio === tc.medio && /\(compra /.test(q.descripcion))).concat(qs));
+  }
+  if (tc && tc.meta) {
+    const medios = readTable('Medios'), m = medios.find(x => x.id === tc.medio);
+    if (m) { if (tc.cuenta) m.ultimos4 = tc.cuenta; if (tc.meta.cupoTotal) m.cupo = tc.meta.cupoTotal; writeTable('Medios', medios); }
+  }
+  if (Object.keys(saldos).length) {
+    const cfg = rowsToObj(readTable('Config'));
+    let prev = {}; try { prev = JSON.parse(cfg.saldosItau || '{}') || {}; } catch (e) { }
+    cfg.saldosItau = JSON.stringify(Object.assign(prev, saldos));
+    writeTable('Config', objToRows(cfg));
+  }
+  return { nuevos: d.nuevos.length, duplicados: d.duplicados, cuotas: qs.length, meses: Object.keys(saldos).length };
+}
+// Ejecutar una vez desde el editor si existe la variable HIST_ITAU (se puede borrar después)
+function cargarHistorial() {
+  if (typeof HIST_ITAU === 'undefined') throw new Error('No hay HIST_ITAU en el proyecto');
+  const r = withLock(() => importarFilasItau(HIST_ITAU));
+  Logger.log('Historial cargado: ' + JSON.stringify(r));
+  return r;
+}
+
+// ---------- Te envía por correo el link de instalación y los datos para los Atajos ----------
+function enviarLinkIphone() {
+  const url = ScriptApp.getService().getUrl();
+  if (!url) throw new Error('Primero implementa la aplicación web (Implementar → Nueva implementación)');
+  const token = PropertiesService.getScriptProperties().getProperty('TOKEN');
+  const app = (typeof APP_URL !== 'undefined' && APP_URL) || 'https://quinonesnacho27-art.github.io/gastos/';
+  const c = Utilities.base64EncodeWebSafe(JSON.stringify({ u: url, t: token }), Utilities.Charset.UTF_8).replace(/=+$/, '');
+  const link = app + '?c=' + c;
+  const ap = url + '?token=' + token + '&action=applepay';
+  const vz = url + '?token=' + token + '&action=voz';
+  const me = Session.getEffectiveUser().getEmail();
+  const css = 'font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#16212B;line-height:1.5';
+  const code = 'display:block;background:#EEF2F4;border-radius:8px;padding:10px;font-family:Menlo,monospace;font-size:12px;word-break:break-all';
+  const html = '<div style="' + css + '">' +
+    '<h2 style="margin:0 0 8px">Tu app Gastos y Ahorro está lista</h2>' +
+    '<p>Abre este correo <b>en tu iPhone</b> y sigue estos pasos.</p>' +
+    '<h3>1. Instala la app (1 min)</h3><p><a href="' + link + '" style="display:inline-block;background:#0B7A75;color:#fff;padding:12px 18px;border-radius:12px;text-decoration:none;font-weight:700">Abrir mi app</a></p>' +
+    '<p>Se abre en Safari ya conectada a tu planilla, con tu historial cargado. Toca <b>Compartir → Agregar a pantalla de inicio</b>.</p>' +
+    '<h3>2. Registro automático con Apple Pay (3 min)</h3><ol>' +
+    '<li>App <b>Atajos</b> → <b>Automatización</b> → <b>+</b> → <b>Transacción</b>. Marca tus tarjetas, elige <b>Ejecutar inmediatamente</b> → Siguiente → <b>Nuevo atajo en blanco</b>.</li>' +
+    '<li>Agrega <b>Obtener contenido de URL</b>. En URL pega esto (mantén presionado para copiar):<span style="' + code + '">' + ap + '</span></li>' +
+    '<li>Toca <b>Mostrar más</b>: Método <b>POST</b>, Cuerpo <b>JSON</b>. Agrega 3 campos de texto: <b>merchant</b> = variable Entrada del atajo → Comercio; <b>amount</b> = Entrada del atajo → Importe; <b>card</b> = Entrada del atajo → Tarjeta.</li>' +
+    '<li>Agrega <b>Mostrar notificación</b> con <b>Contenido de la URL</b>. Listo.</li></ol>' +
+    '<h3>3. Gastos por voz y botón de acción (2 min)</h3><ol>' +
+    '<li>Atajos → <b>+</b> → nombre <b>Gasto</b>. Agrega <b>Dictar texto</b> (Español Chile).</li>' +
+    '<li>Agrega <b>Obtener contenido de URL</b> con esta URL:<span style="' + code + '">' + vz + '</span>Método <b>POST</b>, Cuerpo <b>Archivo</b> = <b>Texto dictado</b>.</li>' +
+    '<li>Agrega <b>Mostrar notificación</b> con <b>Contenido de la URL</b>.</li>' +
+    '<li>Ajustes del iPhone → <b>Botón de acción</b> → Atajo → <b>Gasto</b>. Mantén presionado y di "5 lucas almuerzo".</li></ol>' +
+    '<p style="color:#76838E;font-size:13px">Estas URLs incluyen tu token: no reenvíes este correo.</p></div>';
+  GmailApp.sendEmail(me, 'Tu app Gastos y Ahorro: instálala en el iPhone', 'Abre este correo en tu iPhone. Link de la app: ' + link + '\n\nURL Apple Pay: ' + ap + '\n\nURL voz: ' + vz, { htmlBody: html, name: 'Gastos y Ahorro' });
+  Logger.log('Correo enviado a ' + me);
+  return me;
+}
