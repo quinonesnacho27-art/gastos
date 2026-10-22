@@ -600,7 +600,11 @@ function onOpen() {
 // ---------- Web app ----------
 function doGet(e) {
   const p = (e && e.parameter) || {};
-  if (p.action) return json(safeHandle(p));
+  if (p.action) {
+    const r = safeHandle(p);
+    if ((p.action === 'applepay' || p.action === 'voz') && p.formato !== 'json') return ContentService.createTextOutput(r.msg || (r.ok ? 'OK' : 'Error'));
+    return json(r);
+  }
   try { return HtmlService.createHtmlOutputFromFile('Index').setTitle('Gastos').addMetaTag('viewport', 'width=device-width, initial-scale=1'); }
   catch (err) { return ContentService.createTextOutput('Backend de Gastos funcionando ✅'); }
 }
@@ -609,6 +613,11 @@ function doPost(e) {
   const raw = (e && e.postData && e.postData.contents) || '';
   try { p = JSON.parse(raw || '{}'); } catch (err) { p = { text: raw }; }
   p = Object.assign({}, (e && e.parameter) || {}, p);
+  // Atajo simple de Apple Pay: el cuerpo es un texto con 3 líneas (comercio, monto, tarjeta)
+  if (p.action === 'applepay' && !p.merchant && !p.amount && p.text) {
+    const L = String(p.text).split(/\r?\n|\|/).map(s => s.trim());
+    p.merchant = L[0] || ''; p.amount = L[1] || ''; p.card = L[2] || '';
+  }
   const r = safeHandle(p);
   // Los Atajos del iPhone reciben solo el mensaje, listo para mostrar en la notificación
   if ((p.action === 'applepay' || p.action === 'voz') && !truthy(p.dryRun) && p.formato !== 'json') return ContentService.createTextOutput(r.msg || (r.ok ? 'OK' : 'Error'));
