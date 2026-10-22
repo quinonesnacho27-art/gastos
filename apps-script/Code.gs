@@ -916,8 +916,9 @@ function cargarHistorial() {
 
 // ---------- Te envía por correo el link de instalación y los datos para los Atajos ----------
 function enviarLinkIphone() {
-  const url = ScriptApp.getService().getUrl();
-  if (!url) throw new Error('Primero implementa la aplicación web (Implementar → Nueva implementación)');
+  // getUrl() puede devolver la URL de prueba (/dev), que no funciona desde el iPhone: se usa WEBAPP_URL (la de /exec)
+  const url = (typeof WEBAPP_URL !== 'undefined' && WEBAPP_URL) || ScriptApp.getService().getUrl();
+  if (!url || /\/dev$/.test(url)) throw new Error('Define WEBAPP_URL con la URL de la implementación (termina en /exec)');
   const token = PropertiesService.getScriptProperties().getProperty('TOKEN');
   const app = (typeof APP_URL !== 'undefined' && APP_URL) || 'https://quinonesnacho27-art.github.io/gastos/';
   const c = Utilities.base64EncodeWebSafe(JSON.stringify({ u: url, t: token }), Utilities.Charset.UTF_8).replace(/=+$/, '');
